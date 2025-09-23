@@ -6,7 +6,7 @@
 //! ## Example client
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "rustls-native-certs", feature = "http1"))]
+//! # #[cfg(all(feature = "tokio", feature = "rustls-native-certs", feature = "http1"))]
 //! # fn main() {
 //! use http::StatusCode;
 //! use http_body_util::Empty;
@@ -28,12 +28,15 @@
 //! let res = rt.block_on(client.get(url)).unwrap();
 //! assert_eq!(res.status(), StatusCode::OK);
 //! # }
-//! # #[cfg(not(all(feature = "rustls-native-certs", feature = "http1")))]
+//! # #[cfg(not(all(feature = "tokio", feature = "rustls-native-certs", feature = "http1")))]
 //! # fn main() {}
 //! ```
 
 #![warn(missing_docs, unreachable_pub, clippy::use_self)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+
+#[cfg(not(feature = "tokio"))]
+compile_error!("hyper-rustls requires an enabled runtime: tokio");
 
 mod config;
 mod connector;

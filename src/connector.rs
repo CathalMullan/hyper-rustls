@@ -7,12 +7,15 @@ use std::{fmt, io};
 use http::Uri;
 use hyper::rt;
 use hyper_util::client::legacy::connect::Connection;
-use hyper_util::rt::TokioIo;
 use pki_types::ServerName;
-use tokio_rustls::TlsConnector;
 use tower_service::Service;
 
 use crate::stream::MaybeHttpsStream;
+
+#[cfg(feature = "tokio")]
+use hyper_util::rt::TokioIo;
+#[cfg(feature = "tokio")]
+use tokio_rustls::TlsConnector;
 
 pub(crate) mod builder;
 
@@ -119,12 +122,19 @@ where
             let tcp = connecting_future
                 .await
                 .map_err(Into::into)?;
-            Ok(MaybeHttpsStream::Https(TokioIo::new(
+
+            #[cfg(feature = "tokio")]
+            let stream = MaybeHttpsStream::Https(TokioIo::new(
                 TlsConnector::from(cfg)
                     .connect(hostname, TokioIo::new(tcp))
                     .await
                     .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
-            )))
+            ));
+
+            #[cfg(not(feature = "tokio"))]
+            let stream = todo!();
+
+            Ok(stream)
         })
     }
 }
@@ -219,6 +229,7 @@ pub trait ResolveServerName {
 
 #[cfg(all(
     test,
+    feature = "tokio",
     any(feature = "ring", feature = "aws-lc-rs"),
     any(
         feature = "rustls-native-certs",

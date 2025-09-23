@@ -7,8 +7,6 @@ on:
   push:
   pull_request:
   merge_group:
-  schedule:
-    - cron: '23 6 * * 5'
 
 jobs:
   build:
@@ -22,13 +20,16 @@ jobs:
           - stable
           - beta
           - nightly
+        runtime: [tokio]
         os: [ubuntu-latest]
         # but only stable on macos/windows (slower platforms)
         include:
           - os: macos-latest
             rust: stable
+            runtime: tokio
           - os: windows-latest
             rust: stable
+            runtime: tokio
     steps:
       - name: Checkout sources
         uses: actions/checkout@v5
@@ -49,48 +50,48 @@ jobs:
         uses: seanmiddleditch/gha-setup-ninja@v6
 
       - name: cargo check (default features)
-        run: cargo check --all-targets
+        run: cargo check --all-targets --no-default-features --features ${{ matrix.runtime }},rustls-native-certs,http1,tls12,logging,aws-lc-rs
 
       - name: cargo test (debug; default features)
-        run: cargo test
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},rustls-native-certs,http1,tls12,logging,aws-lc-rs
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo test (debug; rustls-native-certs only)
-        run: cargo test --no-default-features --features rustls-native-certs
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},rustls-native-certs
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo test (debug; webpki-roots only)
-        run: cargo test --no-default-features --features webpki-roots
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},webpki-roots
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo test (debug; defaults+ring)
-        run: cargo test --no-default-features --features ring,rustls-native-certs,http1,tls12,logging
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},ring,rustls-native-certs,http1,tls12,logging
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo test (debug; all features)
         if: runner.os == 'Linux'
-        run: cargo test --all-features
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},aws-lc-rs,fips,http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo test (debug; all features, excluding FIPS)
         if: runner.os != 'Linux'
-        run: cargo test --features aws-lc-rs,http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging
+        run: cargo test --no-default-features --features ${{ matrix.runtime }},aws-lc-rs,http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging
         env:
           RUST_BACKTRACE: 1
 
       - name: cargo build (debug; no default features)
-        run: cargo build --no-default-features
+        run: cargo build --no-default-features --features ${{ matrix.runtime }}
 
       - name: cargo test (debug; no default features; no run)
-        run: cargo test --no-default-features --no-run
+        run: cargo test --no-default-features --features ${{ matrix.runtime }} --no-run
 
       - name: cargo test (release; no run)
-        run: cargo test --release --no-run
+        run: cargo test --release --no-default-features --features ${{ matrix.runtime }},rustls-native-certs,http1,tls12,logging,aws-lc-rs --no-run
 
   msrv:
     runs-on: ubuntu-latest
@@ -134,7 +135,7 @@ jobs:
 
       - name: cargo doc (all features)
         # keep features in sync with Cargo.toml `[package.metadata.docs.rs]` section
-        run: cargo doc --no-default-features --features http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging --no-deps
+        run: cargo doc --no-default-features --features tokio,http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
 
@@ -165,7 +166,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - run: cargo clippy --all-features -- --deny warnings
+      - run: cargo clippy --no-default-features --features tokio,aws-lc-rs,fips,http1,http2,webpki-roots,rustls-native-certs,ring,tls12,logging -- --deny warnings
 
   features:
     runs-on: ubuntu-latest
@@ -179,4 +180,4 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Check feature powerset
-        run: cargo hack --no-dev-deps check --feature-powerset --depth 2
+        run: cargo hack --no-dev-deps check --feature-powerset --depth 2 --include-features tokio
