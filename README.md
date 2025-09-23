@@ -46,8 +46,8 @@ This crate exposes a number of features to add support for different portions of
 | `aws-lc-rs`  | **yes** | Enables use of the [AWS-LC][aws-lc-rs] backend for [`rustls`][rustls] |
 | `http1` | **yes** | Enables HTTP/1 support in [`hyper-util`][hyper-util] |
 | `http2` | **no** | Enables HTTP/2 support in [`hyper-util`][hyper-util] |
-| `webpki-tokio` | **no** | Uses a compiled-in set of root certificates trusted by Mozilla (via [`webpki-roots`][webpki-roots]) |
-| `native-tokio` | **yes** | Use the platform's native certificate store at runtime (via [`rustls-native-certs`][rustls-native-certs]) |
+| `webpki-roots` | **no** | Uses a compiled-in set of root certificates trusted by Mozilla |
+| `rustls-native-certs` | **yes** | Use the platform's native certificate store at runtime |
 | `rustls-platform-verifier` | **no** | Use the operating system's verifier for certificate verification (via [`rustls-platform-verifier`][rustls-platform-verifier]) |
 | `ring` | **no** | Enables use of the [`ring`][ring] backend for [`rustls`][rustls] |
 | `tls12` | **yes** | Enables support for TLS 1.2 (only TLS 1.3 supported when disabled) |
