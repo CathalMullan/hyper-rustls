@@ -12,6 +12,11 @@ use hyper_util::rt::TokioIo;
 #[cfg(feature = "tokio")]
 use tokio_rustls::client::TlsStream;
 
+#[cfg(feature = "smol")]
+use futures_rustls::client::TlsStream;
+#[cfg(feature = "smol")]
+use smol_hyper::rt::FuturesIo;
+
 /// A stream that might be protected with TLS.
 #[allow(clippy::large_enum_variant)]
 pub enum MaybeHttpsStream<T> {
@@ -20,6 +25,9 @@ pub enum MaybeHttpsStream<T> {
     /// A `tokio` stream protected with TLS.
     #[cfg(feature = "tokio")]
     Https(TokioIo<TlsStream<TokioIo<T>>>),
+    /// A `smol` stream protected with TLS.
+    #[cfg(feature = "smol")]
+    Https(FuturesIo<TlsStream<T>>),
 }
 
 impl<T: rt::Read + rt::Write + Connection + Unpin> Connection for MaybeHttpsStream<T> {
@@ -35,6 +43,16 @@ impl<T: rt::Read + rt::Write + Connection + Unpin> Connection for MaybeHttpsStre
                     tcp.inner().connected()
                 }
             }
+            #[cfg(feature = "smol")]
+            Self::Https(s) => {
+                let s = s.as_ref();
+                let (tcp, tls) = s.get_ref();
+                if tls.alpn_protocol() == Some(b"h2") {
+                    tcp.connected().negotiated_h2()
+                } else {
+                    tcp.connected()
+                }
+            }
         }
     }
 }
@@ -43,7 +61,7 @@ impl<T: fmt::Debug> fmt::Debug for MaybeHttpsStream<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Self::Http(..) => f.pad("Http(..)"),
-            #[cfg(feature = "tokio")]
+            #[cfg(any(feature = "tokio", feature = "smol"))]
             Self::Https(..) => f.pad("Https(..)"),
         }
     }
@@ -62,7 +80,18 @@ impl<T> From<TlsStream<TokioIo<T>>> for MaybeHttpsStream<T> {
     }
 }
 
-impl<T: rt::Read + rt::Write + Unpin> rt::Read for MaybeHttpsStream<T> {
+#[cfg(feature = "smol")]
+impl<T> From<TlsStream<T>> for MaybeHttpsStream<T> {
+    fn from(inner: TlsStream<T>) -> Self {
+        Self::Https(FuturesIo::new(inner))
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<T> rt::Read for MaybeHttpsStream<T>
+where
+    T: rt::Read + rt::Write + Unpin,
+{
     #[inline]
     fn poll_read(
         self: Pin<&mut Self>,
@@ -71,13 +100,35 @@ impl<T: rt::Read + rt::Write + Unpin> rt::Read for MaybeHttpsStream<T> {
     ) -> Poll<Result<(), io::Error>> {
         match Pin::get_mut(self) {
             Self::Http(s) => Pin::new(s).poll_read(cx, buf),
-            #[cfg(feature = "tokio")]
             Self::Https(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
 }
 
-impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
+#[cfg(feature = "smol")]
+impl<T> rt::Read for MaybeHttpsStream<T>
+where
+    T: rt::Read + rt::Write + Unpin,
+    TlsStream<T>: smol::io::AsyncRead,
+{
+    #[inline]
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: rt::ReadBufCursor<'_>,
+    ) -> Poll<Result<(), io::Error>> {
+        match Pin::get_mut(self) {
+            Self::Http(s) => Pin::new(s).poll_read(cx, buf),
+            Self::Https(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+#[cfg(feature = "tokio")]
+impl<T> rt::Write for MaybeHttpsStream<T>
+where
+    T: rt::Write + rt::Read + Unpin,
+{
     #[inline]
     fn poll_write(
         self: Pin<&mut Self>,
@@ -86,7 +137,6 @@ impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
     ) -> Poll<Result<usize, io::Error>> {
         match Pin::get_mut(self) {
             Self::Http(s) => Pin::new(s).poll_write(cx, buf),
-            #[cfg(feature = "tokio")]
             Self::Https(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
@@ -95,7 +145,6 @@ impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match Pin::get_mut(self) {
             Self::Http(s) => Pin::new(s).poll_flush(cx),
-            #[cfg(feature = "tokio")]
             Self::Https(s) => Pin::new(s).poll_flush(cx),
         }
     }
@@ -104,7 +153,6 @@ impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
         match Pin::get_mut(self) {
             Self::Http(s) => Pin::new(s).poll_shutdown(cx),
-            #[cfg(feature = "tokio")]
             Self::Https(s) => Pin::new(s).poll_shutdown(cx),
         }
     }
@@ -113,7 +161,6 @@ impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
     fn is_write_vectored(&self) -> bool {
         match self {
             Self::Http(s) => s.is_write_vectored(),
-            #[cfg(feature = "tokio")]
             Self::Https(s) => s.is_write_vectored(),
         }
     }
@@ -126,7 +173,61 @@ impl<T: rt::Write + rt::Read + Unpin> rt::Write for MaybeHttpsStream<T> {
     ) -> Poll<Result<usize, io::Error>> {
         match Pin::get_mut(self) {
             Self::Http(s) => Pin::new(s).poll_write_vectored(cx, bufs),
-            #[cfg(feature = "tokio")]
+            Self::Https(s) => Pin::new(s).poll_write_vectored(cx, bufs),
+        }
+    }
+}
+
+#[cfg(feature = "smol")]
+impl<T> rt::Write for MaybeHttpsStream<T>
+where
+    T: rt::Write + rt::Read + Unpin,
+    TlsStream<T>: smol::io::AsyncWrite,
+{
+    #[inline]
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, io::Error>> {
+        match Pin::get_mut(self) {
+            Self::Http(s) => Pin::new(s).poll_write(cx, buf),
+            Self::Https(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    #[inline]
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match Pin::get_mut(self) {
+            Self::Http(s) => Pin::new(s).poll_flush(cx),
+            Self::Https(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    #[inline]
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+        match Pin::get_mut(self) {
+            Self::Http(s) => Pin::new(s).poll_shutdown(cx),
+            Self::Https(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+
+    #[inline]
+    fn is_write_vectored(&self) -> bool {
+        match self {
+            Self::Http(s) => s.is_write_vectored(),
+            Self::Https(s) => s.is_write_vectored(),
+        }
+    }
+
+    #[inline]
+    fn poll_write_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> Poll<Result<usize, io::Error>> {
+        match Pin::get_mut(self) {
+            Self::Http(s) => Pin::new(s).poll_write_vectored(cx, bufs),
             Self::Https(s) => Pin::new(s).poll_write_vectored(cx, bufs),
         }
     }

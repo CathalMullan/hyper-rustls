@@ -20,16 +20,24 @@ jobs:
           - stable
           - beta
           - nightly
-        runtime: [tokio]
+        runtime:
+          - tokio
+          - smol
         os: [ubuntu-latest]
         # but only stable on macos/windows (slower platforms)
         include:
           - os: macos-latest
             rust: stable
             runtime: tokio
+          - os: macos-latest
+            rust: stable
+            runtime: smol
           - os: windows-latest
             rust: stable
             runtime: tokio
+          - os: windows-latest
+            rust: stable
+            runtime: smol
     steps:
       - name: Checkout sources
         uses: actions/checkout@v5
@@ -180,4 +188,4 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Check feature powerset
-        run: cargo hack --no-dev-deps check --feature-powerset --depth 2 --include-features tokio
+        run: cargo hack --no-dev-deps check --feature-powerset --depth 3 --mutually-exclusive-features tokio,smol --at-least-one-of tokio,smol

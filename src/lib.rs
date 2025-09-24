@@ -35,8 +35,11 @@
 #![warn(missing_docs, unreachable_pub, clippy::use_self)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
-#[cfg(not(feature = "tokio"))]
-compile_error!("hyper-rustls requires an enabled runtime: tokio");
+#[cfg(not(any(feature = "tokio", feature = "smol")))]
+compile_error!("hyper-rustls requires an enabled runtime: tokio, smol");
+
+#[cfg(all(feature = "tokio", feature = "smol"))]
+compile_error!("hyper-rustls cannot have multiple runtimes enabled simultaneously");
 
 mod config;
 mod connector;
