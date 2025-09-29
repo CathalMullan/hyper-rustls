@@ -2,15 +2,16 @@
 //!
 //! First parameter is the mandatory URL to GET.
 //! Second parameter is an optional path to CA store.
-use http::Uri;
-use http_body_util::{BodyExt, Empty};
-use hyper::body::Bytes;
-use hyper_rustls::ConfigBuilderExt;
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use rustls::RootCertStore;
 
-use std::str::FromStr;
-use std::{env, fs, io};
+use std::{env, fs, io, str::FromStr};
+
+use http::{Request, Uri};
+use http_body_util::{BodyExt, Empty};
+use hyper::{body::Bytes, client::conn};
+use hyper_rustls::{tcp, tls, ConfigBuilderExt};
+use rustls::RootCertStore;
+use tower::ServiceBuilder;
+use tower_service::Service;
 
 fn main() {
     // Send GET request and inspect result, with proper error handling.
@@ -69,37 +70,51 @@ async fn run_client() -> io::Result<()> {
             .with_native_roots()?
             .with_no_client_auth(),
     };
-    // Prepare the HTTPS connector
-    let https = hyper_rustls::HttpsConnectorBuilder::new()
-        .with_tls_config(tls)
-        .https_or_http()
-        .enable_http1()
-        .build();
 
-    // Build the hyper client from the HTTPS connector.
-    let client: Client<_, Empty<Bytes>> = Client::builder(TokioExecutor::new()).build(https);
+    let mut service = ServiceBuilder::new()
+        .layer(tls::tokio(tls))
+        .layer(tls::alpn(["http/1.1"]))
+        .service(tcp::tokio());
 
-    // Prepare a chain of futures which sends a GET request, inspects
-    // the returned headers, collects the whole body and prints it to
-    // stdout.
-    let fut = async move {
-        let res = client
-            .get(url)
-            .await
-            .map_err(|e| error(format!("Could not get: {e:?}")))?;
-        println!("Status:\n{}", res.status());
-        println!("Headers:\n{:#?}", res.headers());
+    let stream = service
+        .call(url.clone())
+        .await
+        .map_err(|e| error(format!("Could not connect: {e:?}")))?;
 
-        let body = res
-            .into_body()
-            .collect()
-            .await
-            .map_err(|e| error(format!("Could not get body: {e:?}")))?
-            .to_bytes();
-        println!("Body:\n{}", String::from_utf8_lossy(&body));
+    let (mut tx, conn) = conn::http1::handshake(stream)
+        .await
+        .map_err(|e| error(format!("Could not handshake: {e:?}")))?;
 
-        Ok(())
-    };
+    tokio::spawn(async move {
+        if let Err(e) = conn.await {
+            eprintln!("Connection error: {:?}", e);
+        }
+    });
 
-    fut.await
+    let mut request = Request::builder().uri(&url);
+    if let Some(authority) = url.authority() {
+        request = request.header("Host", authority.host());
+    }
+
+    let request = request
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| error(format!("Could not build request: {e:?}")))?;
+
+    let response = tx
+        .send_request(request)
+        .await
+        .map_err(|e| error(format!("Could not get: {e:?}")))?;
+
+    println!("Status:\n{}", response.status());
+    println!("Headers:\n{:#?}", response.headers());
+
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| error(format!("Could not get body: {e:?}")))?
+        .to_bytes();
+    println!("Body:\n{}", String::from_utf8_lossy(&body));
+
+    Ok(())
 }

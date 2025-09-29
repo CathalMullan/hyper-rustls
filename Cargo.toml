@@ -1,6 +1,6 @@
 [package]
 name = "hyper-rustls"
-version = "0.27.7"
+version = "0.28.0"
 edition = "2021"
 rust-version = "1.71"
 license = "Apache-2.0 OR ISC OR MIT"
@@ -11,59 +11,100 @@ repository = "https://github.com/rustls/hyper-rustls"
 documentation = "https://docs.rs/hyper-rustls/"
 
 [features]
-default = ["native-tokio", "http1", "tls12", "logging", "aws-lc-rs"]
-aws-lc-rs = ["rustls/aws_lc_rs"]
-fips = ["aws-lc-rs", "rustls/fips"]
+default = [
+  "tokio",
+  "rustls-native-certs",
+  "http1",
+  "tls12",
+  "aws-lc-rs",
+  "logging",
+]
+
+tokio = ["dep:tokio", "dep:tokio-rustls", "hyper-util/tokio"]
+smol = ["dep:smol", "dep:smol-hyper", "dep:futures-rustls"]
 http1 = ["hyper-util/http1"]
 http2 = ["hyper-util/http2"]
-logging = ["log", "tokio-rustls/logging", "rustls/logging"]
-native-tokio = ["rustls-native-certs"]
+tls12 = ["rustls/tls12", "tokio-rustls?/tls12", "futures-rustls?/tls12"]
+aws-lc-rs = ["rustls/aws_lc_rs"]
+fips = ["aws-lc-rs", "rustls/fips"]
 ring = ["rustls/ring"]
-tls12 = ["tokio-rustls/tls12", "rustls/tls12"]
-webpki-tokio = ["webpki-roots"]
+rustls-native-certs = ["dep:rustls-native-certs"]
+webpki-roots = ["dep:webpki-roots"]
+rustls-platform-verifier = ["dep:rustls-platform-verifier"]
+logging = [
+  "log",
+  "rustls/logging",
+  "tokio-rustls?/logging",
+  "futures-rustls?/logging",
+]
 
 [dependencies]
 http = "1"
 hyper = { version = "1", default-features = false }
-hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "tokio"] }
-log = { version = "0.4.4", optional = true }
-pki-types = { package = "rustls-pki-types", version = "1" }
-rustls-native-certs = { version = "0.8", optional = true }
-rustls-platform-verifier = { version = "0.6", optional = true }
+hyper-util = { git = "https://github.com/hyperium/hyper-util.git", branch = "pool-ng", default-features = false, features = [
+  "client",
+  "client-pool",
+] }
+pin-project-lite = "0.2"
+pki-types = { package = "rustls-pki-types", version = "1", features = ["std"] }
 rustls = { version = "0.23", default-features = false }
-tokio = "1.0"
-tokio-rustls = { version = "0.26", default-features = false }
 tower-service = "0.3"
+tower-layer = "0.3"
+
+# rustls-native-certs
+rustls-native-certs = { version = "0.8", optional = true }
+# webpki-roots
 webpki-roots = { version = "1", optional = true }
+# rustls-platform-verifier
+rustls-platform-verifier = { version = "0.6", optional = true }
+
+# tokio
+tokio = { version = "1.0", optional = true, default-features = false }
+tokio-rustls = { version = "0.26", optional = true, default-features = false }
+# smol
+smol = { version = "2.0", optional = true, default-features = false }
+smol-hyper = { version = "0.1", optional = true }
+futures-rustls = { version = "0.26", optional = true, default-features = false }
+
+# logging
+log = { version = "0.4.4", optional = true }
 
 [dev-dependencies]
-cfg-if = "1"
 http-body-util = "0.1"
-hyper-util = { version = "0.1", default-features = false, features = ["server-auto"] }
+hyper-util = { git = "https://github.com/hyperium/hyper-util.git", branch = "pool-ng", default-features = false, features = [
+  "server-auto",
+] }
 rustls = { version = "0.23", default-features = false, features = ["tls12"] }
 rustls-pemfile = "2"
-tokio = { version = "1.0", features = ["io-std", "macros", "net", "rt-multi-thread"] }
+tokio = { version = "1.0", features = [
+  "io-std",
+  "macros",
+  "net",
+  "rt-multi-thread",
+] }
+tower = "0.3"
 
 [[example]]
 name = "client"
 path = "examples/client.rs"
-required-features = ["native-tokio", "http1"]
+required-features = ["tokio", "http1", "rustls-native-certs"]
 
 [[example]]
 name = "server"
 path = "examples/server.rs"
-required-features = ["aws-lc-rs"]
+required-features = ["tokio", "aws-lc-rs"]
 
 [package.metadata.docs.rs]
 no-default-features = true
 features = [
-    "http1",
-    "http2",
-    "logging",
-    "native-tokio",
-    "ring",
-    "rustls-platform-verifier",
-    "tls12",
-    "webpki-tokio",
+  "tokio",
+  "http1",
+  "http2",
+  "tls12",
+  "ring",
+  "rustls-native-certs",
+  "webpki-roots",
+  "rustls-platform-verifier",
+  "logging",
 ]
 rustdoc-args = ["--cfg", "docsrs"]
